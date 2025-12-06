@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Expense Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+
+<!-- Font -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+<!-- Chart -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- SheetJS -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+
+<!-- jsPDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+:root {
+    --bg: radial-gradient(circle at top,#0f0435,#02010f);
+    --text: #f5f3ff;
+    --text-muted: #a78bfa;
+    --card-bg: linear-gradient(180deg,#140634,#090018);
+    --card-inner-bg: rgba(80,30,160,.15);
+    --sidebar-bg: linear-gradient(180deg,#4c1d95,#2e1065);
+    --table-border: rgba(167,139,250,.2);
+    --input-bg: rgba(30,5,60,.7);
+    --input-border: rgba(167,139,250,.4);
+    --btn-primary: linear-gradient(135deg,#9333ea,#c084fc);
+    --btn-secondary-bg: #2a003f;
+    --btn-secondary-border: rgba(167,139,250,.4);
+}
+
+body.light {
+    --bg: linear-gradient(180deg,#f7f5ff,#ecebff);
+    --text: #2e1065;
+    --text-muted: #6b21a8;
+    --card-bg: rgba(255,255,255,.95);
+    --card-inner-bg: #ede9fe;
+    --sidebar-bg: linear-gradient(180deg,#8b5cf6,#d8b4fe);
+    --table-border: #ddd;
+    --input-bg: #ffffff;
+    --input-border: #c7b6ff;
+    --btn-primary: linear-gradient(135deg,#7c3aed,#a855f7);
+    --btn-secondary-bg: #ede9fe;
+    --btn-secondary-border: #c4b5fd;
+}
+
+* { box-sizing:border-box; font-family:Inter,Arial; margin:0; }
+
+body { background:var(--bg); color:var(--text); }
+
+.container { display:flex; }
+
+/* ================= SIDEBAR ================= */
+.sidebar{
+    width:250px;
+    padding:22px 18px;
+    background:var(--sidebar-bg);
+    box-shadow: 10px 0 28px rgba(0,0,0,.25);
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+}
+
+.sidebar h3{
+    font-size:18px;
+    font-weight:800;
+    letter-spacing:.6px;
+    color:white;
+    margin-bottom:10px;
+}
+
+.sidebar a {
+    font-size:14px;
+    font-weight:600;
+    padding:12px 14px;
+    border-radius:10px;
+    text-decoration:none;
+    color:white;
+    transition:.2s;
+}
+
+.sidebar a.active{
+    background: linear-gradient(135deg,#7c3aed,#a855f7);
+    box-shadow:0 6px 14px rgba(168,85,247,.45);
+}
+
+.sidebar a:hover{
+    background:rgba(255,255,255,.12);
+    transform: translateX(4px);
+}
+
+.sidebar .info,
+.sidebar .weather{
+    margin-top:8px;
+    padding:10px;
+    background: rgba(255,255,255,.12);
+    text-align:center;
+    border-radius:10px;
+    font-size:12px;
+}
+
+.sidebar button{
+    margin-top:auto;
+    padding:12px;
+    border-radius:14px;
+    background:var(--btn-primary);
+    color:white;
+    border:none;
+    font-weight:700;
+    cursor:pointer;
+    box-shadow:0 8px 18px rgba(167,139,250,.45);
+}
+
+/* ================= MAIN ================= */
+.main{ flex:1; padding:28px }
+
+.header{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:14px }
+
+.controls{ display:flex; gap:10px; flex-wrap:wrap }
+
+input,select{
+    padding:8px;
+    border-radius:7px;
+    border:1px solid var(--input-border);
+    background:var(--input-bg);
+    color:var(--text);
+}
+
+button{
+    padding:8px 12px;
+    border-radius:7px;
+    border:none;
+    background:var(--btn-primary);
+    color:white;
+    cursor:pointer;
+}
+
+button.secondary{
+    background:var(--btn-secondary-bg);
+    border:1px solid var(--btn-secondary-border);
+}
+
+/* ================= CARDS ================= */
+.kpis{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:15px;
+    margin-top:18px;
+}
+
+.card{
+    background:var(--card-bg);
+    padding:16px;
+    border-radius:12px;
+    box-shadow:0 0 12px rgba(167,139,250,.12);
+}
+
+.grid{
+    display:grid;
+    grid-template-columns:2fr 1fr;
+    margin-top:15px;
+    gap:15px;
+}
+
+.list{ max-height:300px; overflow:auto }
+
+.vendor-row{
+    display:flex;
+    justify-content:space-between;
+    margin-bottom:6px;
+    padding:8px;
+    background:var(--card-inner-bg);
+    border-radius:6px;
+}
+
+/* ================= TABLE ================= */
+table{ width:100%; border-collapse:collapse }
+td,th{ padding:8px; border-bottom:1px solid var(--table-border) }
+
+/* ================= MODAL ================= */
+.modal{ position:fixed; inset:0; background:#0008; display:none; align-items:center; justify-content:center }
+.modal .box{ background:white; padding:20px; border-radius:8px }
+
+@media(max-width:900px){
+    .grid{ grid-template-columns:1fr }
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<div class="sidebar">
+<h3>Expense System</h3>
+<a class="active">Dashboard</a>
+<a>Add Billing</a>
+<a>Vendor</a>
+<a>Department</a>
+
+<div id="dateBox" class="info"></div>
+<div id="weatherBox" class="weather"></div>
+
+<button onclick="toggleTheme()">🌙 / ☀ Theme</button>
+</div>
+
+<div class="main">
+
+<div class="header">
+<div>
+<h2>Expense Dashboard</h2>
+<div style="color:var(--text-muted)">Google Sheet Live Data</div>
+</div>
+
+<div class="controls">
+<input id="vendorSearch" placeholder="Search vendor..." oninput="applySearch()">
+<select id="monthSelect" onchange="loadData()">
+<option>All</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+</select>
+
+<select id="currencySelect"><option>USD</option><option>MYR</option></select>
+<input id="rateInput" placeholder="1 USD = 4.15 MYR" style="width:130px">
+
+<button onclick="downloadPDF()">PDF</button>
+<button class="secondary" onclick="exportExcel()">Excel</button>
+</div>
+</div>
+
+<div class="kpis">
+<div class="card"><b>Total</b><h2 id="total">$0</h2></div>
+<div class="card"><b>Vendors</b><h2 id="vendorCount">0</h2></div>
+<div class="card"><b>Departments</b><h2 id="deptCount">0</h2></div>
+<div class="card"><b>Top Vendor</b><h2 id="topVendor">-</h2></div>
+</div>
+
+<div class="grid">
+
+<div>
+<div class="card"><h4>Vendor Distribution</h4><canvas id="vendorDonut"></canvas></div>
+<div class="card"><h4>Monthly Trend</h4><canvas id="trendChart"></canvas></div>
+</div>
+
+<div>
+<div class="card"><h4>Top Vendors</h4><div id="vendorList" class="list"></div></div>
+<div class="card"><h4>Vendor Table</h4><table><tbody id="vendorTable"></tbody></table></div>
+</div>
+
+</div>
+
+<div class="card">
+<h4>Auto Summary</h4>
+<div id="autoSummary"></div>
+</div>
+
+</div>
+</div>
+
+<script>
+let cachedData=null, searchTerm="", vendorChart;
+
+function toggleTheme(){
+    document.body.classList.toggle("light");
+    localStorage.setItem("theme",document.body.classList.contains("light")?"light":"dark");
+}
+
+if(localStorage.getItem("theme")==="light") document.body.classList.add("light");
+
+function formatMoney(v){ return "$"+Number(v).toLocaleString(); }
+
+function loadData(){
+fetch("/api/data").then(r=>r.json()).then(d=>{
+cachedData=d;
+renderAll();
+})
+}
+
+function applySearch(){
+searchTerm=vendorSearch.value.toLowerCase();
+renderAll();
+}
+
+function renderAll(){
+if(!cachedData) return;
+
+let list = cachedData.vendor.filter(v=>v.tool.toLowerCase().includes(searchTerm));
+
+let totalAmount = list.reduce((a,b)=>a+b.amount,0);
+total.innerText = formatMoney(totalAmount);
+vendorCount.innerText = list.length;
+deptCount.innerText = cachedData.department.length;
+
+let top = list.sort((a,b)=>b.amount-a.amount)[0];
+topVendor.innerText = top?top.tool:"-";
+
+vendorTable.innerHTML="";
+list.forEach(v=>{
+vendorTable.innerHTML+=`<tr><td>${v.tool}</td><td>${formatMoney(v.amount)}</td></tr>`
+});
+
+vendorList.innerHTML="";
+list.slice(0,8).forEach(v=>{
+vendorList.innerHTML+=`<div class="vendor-row"><span>${v.tool}</span><b>${formatMoney(v.amount)}</b></div>`
+});
+
+autoSummary.innerText=`Total ${formatMoney(totalAmount)} from ${list.length} vendors.`;
+
+drawCharts(list);
+}
+
+function drawCharts(data){
+if(vendorChart) vendorChart.destroy();
+vendorChart = new Chart(vendorDonut,{
+type:"doughnut",
+data:{
+labels:data.map(x=>x.tool),
+datasets:[{data:data.map(x=>x.amount)}]
+}
+});
+}
+
+function exportExcel(){
+const ws=XLSX.utils.json_to_sheet(cachedData.vendor);
+const wb=XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb,ws,"Report");
+XLSX.writeFile(wb,"expense.xlsx");
+}
+
+function downloadPDF(){
+const {jsPDF}=window.jspdf;
+const pdf=new jsPDF();
+pdf.text("Expense Report",10,10);
+let y=20;
+cachedData.vendor.forEach(v=>{
+pdf.text(v.tool+" : $"+v.amount,10,y); y+=7;
+});
+pdf.save("expense.pdf");
+}
+
+setInterval(()=>dateBox.innerText=new Date().toLocaleString(),1000);
+
+fetch("https://wttr.in/?format=j1").then(r=>r.json()).then(w=>{
+weatherBox.innerText=`${w.current_condition[0].temp_C}°C · ${w.current_condition[0].weatherDesc[0].value}`
+});
+
+loadData();
+</script>
+</body>
+</html>
