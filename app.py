@@ -8,8 +8,7 @@ from datetime import datetime
 # ============================
 # CONFIG
 # ============================
-API_URL = "https://script.google.com/macros/s/AKfycbwZAlVS7-UgNi8q3pwm9JaF84cuCH_ZQcfOA6_gw4tarjSbMmTuNr6zx6SpDJ8oGQIq/exec"
-SHEET_CSV = "https://docs.google.com/spreadsheets/d/1eFRZufnqtjcINgrohblzwWutn4SC8H42bSPQ02YlCac/export?format=csv&gid=1703506144"
+API_URL = "https://script.google.com/macros/s/AKfycbyHmv30wUZ6zyjEt2l6JwhNnPQg6Ig9QpHLFhjNHjWWtdDxn7XbaD2cE1aVJ9kc6rBM/exec"
 
 UPLOAD_FOLDER = os.path.join("static", "receipts")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -20,33 +19,36 @@ app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20MB
 
 
 # ============================
-# UTILITIES
+# READ ALL SHEETS (NEW)
 # ============================
-def send_to_sheet(payload):
+def read_all_sheets():
+    """
+    Ambil semua data expense dari semua sheet:
+    - XOO Expense of October
+    - XOO Expense of November
+    - XOO Expense of December
+    - dll...
+    """
     try:
-        requests.post(API_URL, json=payload, timeout=8)
+        data = requests.get(API_URL + "?mode=all").json()
     except Exception as e:
-        print("Send to sheet failed:", e)
+        print("Failed to load multi-sheet data:", e)
+        return pd.DataFrame()
 
+    if not data:
+        return pd.DataFrame()
 
-def read_sheet():
-    try:
-        df = pd.read_csv(SHEET_CSV)
-    except Exception as e:
-        print("Sheet read error:", e)
-        return pd.DataFrame(columns=[
-            "date","tool","used_by","department","amount",
-            "company","status","cycle","renewal","receipt","desc"
-        ])
+    df = pd.DataFrame(data)
 
-    # NORMALIZE COLUMN NAMES AUTOMATICALLY
+    # --- Normalisasi nama kolom dari Google Sheet ---
     col_map = {}
     for c in df.columns:
         lc = c.lower()
-        if "date" in lc and ("purchase" in lc or "date" == lc): col_map[c] = "date"
+
+        if "date" in lc: col_map[c] = "date"
         elif "tool" in lc or "service" in lc: col_map[c] = "tool"
         elif "use" in lc: col_map[c] = "used_by"
-        elif "department" in lc: col_map[c] = "department"
+        elif "depart" in lc: col_map[c] = "department"
         elif "amount" in lc: col_map[c] = "amount"
         elif "company" in lc: col_map[c] = "company"
         elif "status" in lc: col_map[c] = "status"
@@ -58,12 +60,14 @@ def read_sheet():
 
     df = df.rename(columns=col_map)
 
-    # ENSURE REQUIRED COLUMNS
-    for col in ["date","tool","used_by","department","amount","company","status","cycle","renewal","receipt","desc"]:
+    # Pastikan semua kolom wajib ada
+    required = ["date","tool","used_by","department","amount","company",
+                "status","cycle","renewal","receipt","desc"]
+    for col in required:
         if col not in df.columns:
             df[col] = ""
 
-    # FORMAT DATA
+    # Format tanggal + amount
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["amount"] = (
         df["amount"]
@@ -76,6 +80,9 @@ def read_sheet():
     return df
 
 
+# ============================
+# TREND HELPER
+# ============================
 def last_months(df, n=6):
     df = df.dropna(subset=["date"])
     df["month"] = df["date"].dt.to_period("M")
@@ -93,6 +100,9 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+# =============================================
+# ADD DATA → tetap kirim ke December (Apps Script)
+# =============================================
 @app.route("/add", methods=["GET", "POST"])
 def add():
     if request.method == "POST":
@@ -112,7 +122,7 @@ def add():
             "used_by": form.get("used_by", ""),
             "department": form.get("department", ""),
             "amount": form.get("amount", "0"),
-            "currency": form.get("currency", "USD"),  # ✅ TAMBAH
+            "currency": form.get("currency", "USD"),
             "company": form.get("company", ""),
             "status": form.get("status", ""),
             "cycle": form.get("cycle", ""),
@@ -121,26 +131,31 @@ def add():
             "desc": form.get("desc", "")
         }
 
-        send_to_sheet(payload)
+        try:
+            requests.post(API_URL, json=payload, timeout=8)
+        except:
+            print("Failed to send new data")
+
         return redirect("/")
 
     return render_template("add.html")
 
 
+# =============================================
+# API DATA → sudah multi-sheet otomatis
+# =============================================
 @app.route("/api/data")
 def api_data():
     month = request.args.get("month", "All")
+    df = read_all_sheets()
 
-    df = read_sheet()
-
-    # FILTER MONTH
+    # Filter bulan (kalau user pilih)
     if month != "All":
         try:
             df = df[df["date"].dt.month == int(month)]
         except:
             pass
 
-    # KPI
     total = float(df["amount"].sum())
 
     vendor = (
@@ -148,7 +163,6 @@ def api_data():
         .sum()
         .reset_index()
         .sort_values("amount", ascending=False)
-        .fillna("")
     )
 
     department = (
@@ -156,11 +170,9 @@ def api_data():
         .sum()
         .reset_index()
         .sort_values("amount", ascending=False)
-        .fillna("")
     )
 
-    # TREND
-    trend = last_months(read_sheet(), n=6)
+    trend = last_months(read_all_sheets(), n=6)
 
     return jsonify({
         "total": total,
@@ -171,11 +183,14 @@ def api_data():
     })
 
 
+# =============================================
+# DOWNLOAD CSV
+# =============================================
 @app.route("/download/csv")
 def download_csv():
     try:
         path = os.path.join("static", "export.csv")
-        read_sheet().to_csv(path, index=False)
+        read_all_sheets().to_csv(path, index=False)
         return send_file(path, as_attachment=True, download_name="expenses.csv")
     except Exception as e:
         return str(e), 500
